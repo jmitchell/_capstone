@@ -1,0 +1,95 @@
+* Disassemble Function
+Consider how one might implement the =see= Forth word in a Forth
+implemented in a mix of ASM and C.
+
+The goal is to write a C program that emits the disassembled form of
+one of the functions defined in that program. This should be easy
+using the =capstone= library, except it's not yet clear how to
+reliably determine the length (in bytes) of the compiled function from
+within the program itself.
+
+#+BEGIN_SRC c :tangle test1.c
+#include <stdio.h>
+#include <inttypes.h>
+
+#include <capstone/capstone.h>
+
+// see https://gcc.gnu.org/ml/gcc-help/2003-07/msg00101.html
+#define DEFINE_SIZED_FUNCTION(rtype, name, params, body) \
+  rtype name params body \
+  void endof_##name(void) { }
+
+#define sizeof_function(name) ((char *)endof_##name - (char *)name)
+
+DEFINE_SIZED_FUNCTION(int, add, (int x, int y), {
+    return x + y;
+});
+
+int main(void)
+{
+  printf("Size of add(): %d bytes\n", sizeof_function(add));
+  
+  csh handle;
+  cs_insn *insn;
+  size_t count;
+
+  if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
+    return -1;
+  count = cs_disasm(handle, &add, sizeof_function(add), &add, 0, &insn);
+  if (count > 0) {
+    size_t j;
+    for (j = 0; j < count; j++) {
+      printf("0x%"PRIx64":\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic,
+             insn[j].op_str);
+    }
+
+    cs_free(insn, count);
+  } else
+    printf("ERROR: Failed to disassemble given code!\n");
+
+  cs_close(&handle);
+
+  return 0;
+}
+#+END_SRC
+
+#+BEGIN_SRC makefile :tangle Makefile
+# capstone library name (without prefix 'lib' and suffix '.so')
+LIBNAME = capstone
+
+test1: test1.o
+
+	${CC} $< -O3 -Wall -l$(LIBNAME) -o $@
+
+%.o: %.c
+	${CC} -c $< -o $@
+
+clean:
+	rm test1.o
+	rm test1
+#+END_SRC
+
+#+BEGIN_SRC sh :results value verbatim
+make clean
+make
+./test1
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+rm test1.o
+rm test1
+cc -c test1.c -o test1.o
+cc test1.o -O3 -Wall -lcapstone -o test1
+Size of add(): 32 bytes
+0x107fc6d50:	push		rbp
+0x107fc6d51:	mov		rbp, rsp
+0x107fc6d54:	mov		dword ptr [rbp - 4], edi
+0x107fc6d57:	mov		dword ptr [rbp - 8], esi
+0x107fc6d5a:	mov		esi, dword ptr [rbp - 4]
+0x107fc6d5d:	add		esi, dword ptr [rbp - 8]
+0x107fc6d60:	mov		eax, esi
+0x107fc6d62:	pop		rbp
+0x107fc6d63:	ret		
+0x107fc6d64:	nop		word ptr cs:[rax + rax]
+#+end_example
