@@ -62,7 +62,7 @@ make
 
 And finally, run =test1=.
 
-#+BEGIN_SRC sh :results value table
+#+BEGIN_SRC sh :results value table :exports both
 ./test1
 #+END_SRC
 
